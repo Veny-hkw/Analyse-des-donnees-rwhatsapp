@@ -1,0 +1,859 @@
+---
+title: Analyse des données
+subtitle: Analyse des conversations whatsapp
+author: "Auteur :  Vincent NZOGO N."
+output: 
+  html_document: 
+    toc: yes 
+    toc_depth: 6
+    toc_float: yes
+    theme: cerulean
+    highlight: zenburn
+---
+
+```{=html}
+<style type="text/css" media="all">
+  body{
+        text-align: justify;
+        text-indent: 22px;
+        font-family: Times New Roman;
+        font-size: 22px;
+        font-height: 80%;
+        font-stretch: 2.5px;
+        font-weight: normal;
+        margin: 10px 5Opx 20px 0;
+        line-height: 1.5;
+        }
+ </style>
+```
+<br>
+
+```{r Libraries, include=FALSE}
+library(usethis)
+use_github()
+
+# Data analysis
+library(rwhatsapp)
+library(tidyverse)
+
+# word analysis
+library(tidytext)
+library(wordcloud)
+library(tm)
+
+# sentiments analysis
+library(syuzhet)
+
+# Redaction
+library(rmarkdown)
+
+# Graph : plots and color palette
+library(RColorBrewer)
+library(plotly)
+library(lessR)
+
+# Tables
+library(DT)
+library(gt)
+library(knitr)
+```
+
+```{r others, include=FALSE}
+
+# # Text Mining
+# 
+# ## data cleaning
+# 
+# # build corpus 
+# corpus <- iconv(f_chat$text , to = "utf-8")
+# corpus <- Corpus(VectorSource(corpus))
+# inspect(corpus)
+# 
+# ## clean text
+# 
+# # remove nbre
+# corpus <- tm_map(corpus, removeNumbers)
+# inspect(corpus[1:15])
+# 
+# # remove punct
+# corpus <- tm_map(corpus, removePunctuation)
+# inspect(corpus[1:15])
+# 
+# # set lowcase
+# corpus <- tm_map(corpus, tolower)
+# inspect(corpus[1:15])
+# 
+# # remove links
+# removeURL <- function(x) { gsub("http[[:alnum:]]*", "", x) }
+# corpus <- tm_map(corpus, content_transformer(removeURL))
+# inspect(corpus[1:15])
+# 
+# # remove whitespace
+# corpus <- tm_map(corpus, stripWhitespace)
+# inspect(corpus[1:15])
+# 
+# # remove some words
+# corpus <- tm_map(corpus, removeWords, c("médias omis", "cmédias omis", "cparker", "null" ))
+# corpus <- tm_map(corpus, removeWords, stopwords("french"))
+# inspect(corpus[1:15])
+```
+
+# **1) Présentation des Données**
+
+Les données soumisent à notre étude émanent de ma plateforme de discussion whatsapp, plus précisément du groupe de discussion qui réunit mes frères et moi.
+
+### **a) Données Brutes**
+
+Les données brutes sont des données sur lequelles aucune transformation n'a été effectuée.
+
+```{r data_import, include=FALSE}
+
+# import raw data
+
+chat_f <- rwa_read("raw_data.txt")
+```
+
+![***Données brutes***](Capture%20d’écran%202024-07-15%20235100.png)
+
+Les données brutes ci-dessus comporte **6 colonnes** que sont :
+
+-   **time** : le temps depuis le début des conversations jusqu'à présent,
+
+-   **authors** : il s'agit des utilisateurs de whatsapp, exemple : dans ce cas Tess et Moi. Il peut aussi s'agir d'un groupe whatsapp,
+
+-   **text** : la colonne text enregistre tous les messages que interlocuteurs se sont écris,
+
+-   **source** : cette colonne renvoie le nom du document qui contient les données brutes,
+
+-   **emoji** : enregistre tous les emojis envoyés lors des discussions,
+
+-   **emoji_name** : enregistre les noms de chaque emojis envoyé.
+
+### **b) Données nettoyées**
+
+Les données nettoyées ont subi certaines transformations visant à rendre les données plus lisible et utilisable.
+
+Pour nettoyer nos données, nous avons effectué les tâches suivantes :
+
+-   rendre les noms des utilisateurs lisibles,
+
+-   supprimer les valeurs manquates,
+
+-   supprimer les colonnes dont nous avons pas besoin,
+
+-   ajouter de nouvelles colonnes
+
+-   supprimer la punctuation, les nombres, les espaces et autres choses inutiles pour notre analyse.
+
+```{r clean_data, include=FALSE}
+
+# Tidy data
+f_chat <- chat_f %>%
+  mutate(temps = date(time)) %>% 
+  mutate( 
+    saison = case_when( 
+  temps >= dmy(02032022) & temps <= dmy(02082022) ~ "1ere période",
+  temps >= dmy(03082022) & temps <= dmy(03012023) ~ "2nde période",
+  temps >= dmy(04012023) & temps <= dmy(04072023) ~ "3eme période",
+  temps >= dmy(09072023) & temps <= dmy(11052024) ~ "4eme période",
+  
+  )) %>% 
+  select(!c(source, time)) %>% 
+  filter(!is.na(author)) %>% 
+  filter(!text %in% "<Médias omis>")
+
+
+### clean data
+
+# replace names
+f_chat$author <- f_chat$author %>% 
+  str_replace('Deus E Capaz De Fazer', 'Veny') %>%
+  str_replace('Denis', "Denson") %>% 
+  str_replace('Elbert A', "Elbert") %>% 
+  str_replace('Monsieur EKIRI', "Autres") %>% 
+  str_replace('Mum Of Love', "Autres")
+
+# remove punctuation
+f_chat$text <- f_chat$text %>% 
+  removePunctuation()
+
+# remove numbers
+f_chat$text <- f_chat$text %>% 
+  removeNumbers()
+
+# remove white space
+f_chat$text <- f_chat$text %>% 
+  stripWhitespace()
+
+# remove others unusefulland dirty things
+f_chat$text <- f_chat$text %>% 
+  str_remove("http[[:alnum:]]*") %>% 
+  str_remove("www[[:alnum:]]*") %>% 
+  str_remove("youtube[[:alnum:]]*") %>% 
+  str_remove("Ce message a été supprimé") %>% 
+  str_remove("null") %>% 
+  str_remove("meet.google.com/hkk-fhvk-oys[[:alnum:]]*")
+```
+
+![***Données nettoyées et rangées***](Capture%20d’écran%202024-07-16%20002430.png)
+
+Dans le tableau ci-dessous nous avons réduit le nombre de variables.
+
+```{r table1, echo=FALSE, error=FALSE, fig.align='center', fig.height=4, fig.width=5, message=FALSE}
+
+
+f_chat %>% 
+  select(-c(temps, saison, emoji_name)) %>% 
+  datatable(
+    rownames = F,
+    # extensions = "Buttons",
+    class = "cell-border stripe compact hover",
+    colnames = c( "Utilisateurs" = 1, 'Conversations' = 2),
+    # filter = list(position = "top", clear = TRUE, plain = FALSE),
+    options = list(lengthChange = F,
+                   ColumDefs = list( 
+                     list( ClassName = "dt-center", targets = "_all")),
+                   # dom = "Bfrtip",
+                   # buttons = c("copy", "csv", "excel"),
+                   autoWidth = T, autFill = T,
+                   lengthMenu = list(c(5, 8, 1), c("5", "8", "1") ),
+                   language = list(
+                     paginate = list(previous = "précédent", 'next' = "suivant"),
+                     info = ""),
+                   order = list(list(2, "desc")),
+                   searching = FALSE
+                  ),
+    caption = htmltools::tags$caption(
+      style = "text-align : center; caption-side: top; color: orange;", 
+      "Table 1 : ", htmltools::tags$strong("Données nettoyées et triées")) 
+    ) %>% 
+  formatStyle(columns = c("Utilisateurs"), 
+              target = c("cell"),
+              backgroundColor = "lightblue",
+              color = "black", 
+              fontWeight = "bold")
+```
+
+# **2) Analyse des Données**
+
+Notre analyse consistera à faire parler les données issues des conversations whatsapp afin de comprendre les informations qu'elles renferment.
+
+## **A) Fréquence des chats**
+
+### **a) Fréquence des chats entre 2023 et 2024**
+
+Le graphique ci-dessous montre la fréquence des discussions journalière. J'ai répartis les conversations sur quatre semestres dans la période 2022-2024.
+
+```{r echo=FALSE, error=FALSE, fig.align='center', fig.cap=, message=FALSE, fig.cap= "**Graphique 1** : Fréquence des chats entre 2023-2024"}
+
+f_chat %>% 
+  group_by(saison) %>% 
+  count(temps) %>% 
+          filter(!is.na(saison)) %>% 
+  ggplot(aes(x = temps, y = n, fill = saison))+
+  geom_bar(stat = "identity", show.legend = T)+
+  theme_bw()+
+  labs(title = "Fréquence des chats sur la période 2023-2024",
+       subtitle = "La période 2022-2024, répartie en 5 semestres",
+       # caption = "Auteur : Vincent N.",
+       x = "", y = "Nombre de messages")+
+  theme(plot.title = element_text(color = "blue", size = 12,
+                                  face = "bold", vjust = 0.9),
+        plot.subtitle = element_text(color = "red", size = 9,
+                                     face = "bold", vjust = 0.5),
+  axis.title.y = element_text(size = 10, vjust = 2.2),
+  axis.ticks.y = element_blank(),
+  axis.text.x = element_text(color = "black", size = 10),
+  panel.border = element_rect(linetype = 1, linewidth = 0.9,
+                              colour = 'black'),
+  plot.background = element_rect(fill = "white"),
+  panel.background = element_rect(linewidth = 0.9),
+  legend.position = 'bottom',
+  legend.title = element_blank())+
+  scale_fill_brewer(palette = "Dark2")+
+  scale_x_date( date_labels = "%b %y", date_breaks = "3 months")
+```
+
+Le graphique ci-dessus met en évidence la fréquence des conversations dans le groupe des frères.
+
+Il est visible que la fréquence de nos conversations est élévé au début de la première période, précisément dans la période d'**avril 2022**. En effet, on s'écrivait plus 40 messages par jour.
+
+Entre avril 2022 et avril 2023, la fréquence de nos conversations est régulière avec quelques variations plus ou moins fortes.
+
+**Cependant**, la période la plus marquante se situe entre **juillet 2023** et **janvier 2024**. Nous sommes à la quatrième période, la fréquence de nos conversations est nulle, en gros, nous n'avons presque pas eu de conversations.
+
+### **b) Fréquence des messages par semaine**
+
+**Quel jour de la semaine écrivons-nous le plus ?**
+
+Le tableau suivant met en évidence les jours de la semaine dans lesquels on discute plus.
+
+```{r table2, echo=FALSE, fig.align='center'}
+
+f_chat <- chat_f %>%
+  filter(!is.na(author)) %>% 
+  mutate(jour_sem = weekdays(time), 
+         nbr_jour = wday(time, week_start = 1)) 
+
+Count <- f_chat %>% 
+  count(jour_sem, 
+        name = "Nombre de jours", sort = T)
+
+Count %>% 
+  datatable(
+    # extensions = "Buttons",
+    colnames = c("Jours de la semaine" = 1),
+    options = list(dom = "bfrts",
+                   lengthMenu = list(c(7)),
+                   searching = F,
+                   # buttons = c("copy","csv", "excel"),
+                   # pageLength = 15,
+                   columnDefs = list(list(className = 'dt-center',
+                                          targets = "_all")),
+                   language = list(paginate = list(previous = "", 'next' = ""))
+                  ),
+    class = "cell-border compact hover stripe",
+    rownames = F,
+    caption = htmltools::tags$caption(
+      style = "caption-side: top; text-align:center; color: orange", "Table 2 : ", 
+      htmltools::tags$strong("messages par semaine")
+      )) %>%
+  formatStyle(names(Count[, 2]), 
+              background = styleColorBar(Count[, 2], rgb(0.20, 0.6, 0.50, 0.35)),
+              backgroundSize = "98% 88%",
+              backgroundRepeat = "no-repeat",
+              backgroundPosition = "center", 
+              color = "red")
+```
+
+On aperçoit à l'aide du tableau ci-dessus qu'on s'écrit le plus le **mardi**, le **mercredi**, et le **lundi**. Le reste de jours on s'écrit moins.
+
+Le graphique. suivant expose encore mieux cette conclusion.
+
+```{r echo=FALSE, fig.align='center', fig.cap= "**Graphique 2** : Fréquence des chats hebdomadaire"}
+
+# days
+Days <- c("lundi", "mardi", "mercredi", "jeudi", "vendredi","samedi", "dimanche")
+
+# visualization
+f_chat %>%
+  group_by(nbr_jour) %>%
+  count(sort = T) %>%
+  ggplot(aes(nbr_jour , y = n, fill = n))+
+  geom_bar(stat = 'identity', show.legend = F, width = 0.7)+
+  labs(title = "Fréquence des conversations hebdomadaire",
+       subtitle = "Quel jour écrivons-nous le plus ?",
+       x = "", y = "Nombre de conversations")+
+  scale_fill_gradient2( low = "green", mid = "red",
+                        high = "steelblue")+
+  theme_bw()+
+  theme(plot.title = element_text(size = 12, face = "bold", color = 'blue'),
+        plot.subtitle = element_text(colour = "red", size = 9, face = "bold"),
+        axis.title.y = element_text(vjust = 2.2, size = 10),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(color = "black", size = 10),
+        plot.background = element_rect(fill = "white"),
+        panel.border = element_rect(linetype = 1, linewidth = 0.9,
+                                    colour = 'black'),
+        panel.background = element_rect(linetype = 9,
+                                        color = "black"))+
+  scale_x_continuous(breaks = 1:7, labels = Days) 
+```
+
+En fait, comme nous l'avons mentionné, ce graphique étaye les informations du [tableau 2](###Fréquence-de-messages-par-semaine). En effet, nous discutons davantage le **mardi**, le **mercredi**, et le **lundi**.
+
+### **c) Nombre de chats par utilisateur**
+
+Le tableau qui suit révèle le nombre de messages écrit par chaque utilisateur.
+
+```{r echo=FALSE, fig.align='center', message=FALSE, warning=FALSE, error=FALSE}
+
+f_chat$author <- f_chat$author %>% 
+  str_replace_all("Deus E Capaz De Fazer", "Veny") %>% 
+  str_replace_all("Elbert A", "Elbert") %>% 
+  str_replace("Mum Of Love", "Autres") %>%  
+  str_replace("Monsieur EKIRI Julien", "Autres") %>% 
+  str_replace("Denis", "Denson")
+
+Count <- f_chat %>% 
+  filter(!author == 234) %>%
+  group_by(author) %>%
+  count(name = "Nombre de messages par personne", sort = T)
+
+Count %>% 
+  datatable(
+    class = "compact hover cell-border stripe",
+    rownames = F, 
+    colnames = c("Utilisateurs" = 1),
+    options = list(lengthMenu = list(c(4)), dom = "t", columnDefs = list(
+      list( className = "dt-center", targets = "_all")
+      )
+    ),
+    caption = htmltools::tags$caption(style = "caption-side: top; text-align: center; color: orange", "Table 3 : ", htmltools::tags$strong("Nombre de messages par personne"))
+  ) %>% 
+  formatStyle(names(Count[,2]), 
+              background = styleColorBar(Count[, 2], rgb(0.20, 0.6, 0.50, 0.35)),
+              backgroundSize = "98% 88%",
+              backgroundRepeat = "no-repeat",
+              # backgroundPosition = "center", 
+              color = "red")
+
+# library(shiny)
+# renderDT({
+#   datatable(
+#     head(mtcars),
+#     rownames = F,
+#     extensions = c("Responsive"),
+#     class = "cell-border stripe compact hover",
+#     options = list(responsive = TRUE,
+#       lengthMenu = list(c(5))
+#     )
+#   )
+# })
+```
+
+On peut observer quelle personne écrit plus. On constate que :
+
+-   Parker a écrit **1113** messages;
+
+-   Veny a écrit **385** messages;
+
+-   Denson a écrit **374** messages;
+
+-   Elbert a écrit **206** messages.
+
+Vérifions ces informations à l'aide d'un graphique en camembert.
+
+```{r echo=FALSE, fig.align='center', warning=FALSE, message=FALSE,  fig.cap= "**Graphique 3** : Part des messages par utilisateur"}
+
+f_chat %>% 
+  group_by(author) %>% 
+  filter(author >= 205) %>%
+  filter(!is.null(author)) %>% 
+  filter(!is.na(author)) %>% 
+  count() %>% 
+  plot_ly(values = ~n, labels = ~factor(author), type = "pie", 
+          textinfo = "label+percent", textposition = "outside",
+          line = list(color = "white", width = 2), # hoverinfo = "label",
+          outsidetextfont = list(color = "red"),
+          marker = list(colors = c("gold", "cornflowerblue")), hole = 0.5) #%>% 
+  #layout(title = "Part des messages par utilisateur")
+```
+
+En pourcentage, la part des messages par utilisateur est :
+
+-   Parker a écrit **50.3 %** de messages écrits,
+
+-   Elbert a écrit **9%** de messages écrits,
+
+-   Denon a écrit **18%** de messages écrits,
+
+-   Veny a écrit **18.4%** de messages écrits.
+
+### **d) Fréquence des messages par heure**
+
+**A quelle heure chatons-nous le plus ?**
+
+Ici, nous désirons connaitre la tranche d'heure dans laquelle nous discutons le plus.
+
+Aidons-nous d'un graphique pour voir clairement.
+
+```{r echo=FALSE, fig.cap= "**Graphique 4** : Fréquence de messages par heure"}
+
+# mychat.Al %>% 
+#   mutate(heure = hour(time)) %>% 
+#   group_by(heure, `Jours de la semaine`, season) %>% 
+#   count(heure) %>% 
+#   ggplot(aes(heure, y = n, fill = n))+ 
+#   geom_col(position = position_dodge(width = 0.8))+
+#   facet_wrap(facets = ~`Jours de la semaine`, ncol = 7)+
+#   scale_x_continuous(breaks = seq(0,24, 6))
+
+f_chat <- chat_f %>% 
+  filter(!is.na(author)) 
+  
+
+f_chat %>%
+  # group_by(jour_sem) %>% 
+  mutate(heure = hour(time)) %>% 
+  count(heure) %>% 
+  ggplot(aes(heure, y = n, fill = heure))+
+  geom_bar(stat = "identity", show.legend = F)+
+  scale_x_continuous(breaks = 0:23)+
+  labs(title = "Fréquence de messages par heure",
+       x = "Heures", y = "Nombre de messages")+
+  scale_fill_gradient2(low = "lightgreen", mid = "orange",
+                       high = "darkblue")+
+  # facet_wrap(~jour_sem, ncol = 7, scales = "free_x")+
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        axis.title.y = element_text(size = 9, vjust = 4,
+                                    color = "black"),
+        axis.title.x = element_text(size = 9, color = "black",
+                                    hjust = 3.5),
+        plot.background = element_rect(fill = "white"),
+        panel.background = element_rect(linetype = 9))+
+  theme_bw()
+```
+
+On constate que la tranche horaire dans laquelle nous discutons le plus se situe entre **20h** et **22h**. En fait, avant et après cette plage horaire, on discute moins.
+
+En réalité pour être plus précis, l'heure à laquelle on discute le plus est **21h**. Nos conversations peuvent aller au-delà de 200 messages.
+
+## **B) Emojis**
+
+Les messages whatsapp s'accompgnent souvent de logogrammes généralement appelés d'**émojis**.
+
+Dans cette section, nous allons mettre en évidence les émojis les plus utlisés par chaque utlisiteurs.
+
+Nous montrerons d'abord, les émojis que chaque utilisateurs aime utiliser. Ensuite, nous verrons les noms de ces émojis.
+
+### **a) Emojis les plus utilisés**
+
+```{r echo=FALSE, fig.align='center', include=FALSE}
+
+# change the name of some authors
+f_chat$author <- f_chat$author %>% 
+  str_replace_all("Deus E Capaz De Fazer", "Veny") %>% 
+  str_replace_all("Elbert A", "Elbert") %>% 
+  str_replace("Mum Of Love", "Autres") %>%  
+  str_replace("Monsieur EKIRI Julien", "Autres") %>% 
+  str_replace("Denis", "Denson")
+
+f_chat %>% 
+  unnest(emoji) %>%
+  group_by(author, emoji) %>% 
+  count(sort = T, name = "Nombre d'emojis") %>% 
+  top_n(n = 10) %>% 
+  datatable(
+    class = "cell-border compact stripe hover", 
+    rownames = F,
+    colnames = c('Utlisateurs' = 1),
+    options = list(lengthMenu = list(c(5)), lengthChange = F,
+      columnDefs = list(
+        list(className = "dt-center", targets = "_all") ),
+      language = list(info = "Appuyez sur 'Suivant' pour voir la suite", 
+                      paginate = list(previous = "précédent", 'next' = "suivant"),
+                      lengthMenu = " lire _MENU_ 1ère observations"), 
+      searching = FALSE
+      ),
+    caption = htmltools::tags$caption(style = "caption-side: top; text-align: center; color: orange", "Table 4 : ", htmltools::tags$strong("Les émojis les plus utilisés par individu"))
+    )
+```
+
+Le graphique 5 montre les six (6) émojis les plus utilisés par chaque utilisateur.
+
+```{r echo=FALSE, fig.align='center',fig.cap= "**Graphique 5**: Emojis préférés par chaque utilisateur"}
+
+# change the name of some authors
+f_chat$author <- f_chat$author %>% 
+  str_replace_all("Deus E Capaz De Fazer", "Veny") %>% 
+  str_replace_all("Elbert A", "Elbert") %>% 
+  str_replace("Mum Of Love", "Autres") %>%  
+  str_replace("Monsieur EKIRI Julien", "Autres") %>% 
+  str_replace("Denis", "Denson")
+
+f_chat %>% 
+  unnest(emoji) %>% 
+  group_by(author) %>%
+  count(emoji, author, sort = T) %>% 
+  slice_max(emoji, n = 6) %>% 
+  ggplot(aes(reorder_within(emoji, n, author), y = n, fill = author))+
+  geom_bar(stat = "identity", show.legend = F, width = 0.4)+
+  # facet_wrap(facets = ~author, ncol = 2, scales = "free_y")+
+  coord_flip()+
+  facet_wrap(~author, ncol = 3, scales = "free")+
+  theme_bw()+
+  labs(y = "", x = "")+
+  scale_x_reordered()+
+  theme(
+    axis.text.x = element_text(color = "blue"),
+    # axis.ticks.x = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.background = element_rect(fill = "white", linetype = 2),
+    # panel.background = element_rect(linetype = 2)
+  )
+```
+
+On peut aisement constater que nos préférence en termes d'émojis ne sont pas très éloignées. On a en commun quelque émojis.
+
+### **b) Noms des émojis les plus utilisés**
+
+Après avoir montré les émojis les plus utlisés, donnons désormais leurs noms.
+
+En fait, nous avons l'habitude d'utiliser les émojis sans connaitre leurs noms. Ici, nous allons vous révéler les noms des émojis les plus utlisés par chaque utilisateur.
+
+```{r, echo=FALSE, fig.align='center', fig.cap= "**Graphique 7** : Noms des émojis préférés par chaque utilisateur"}
+
+f_chat %>% 
+  unnest(emoji_name) %>% 
+  group_by(author) %>% 
+  count(emoji_name, sort = T) %>% 
+  top_n(n = 4) %>% 
+  ggplot(aes(reorder_within(emoji_name, n, author), y = n))+ 
+  aes(fill = author) + 
+  geom_col(width = 0.4, show.legend = F)+
+  facet_wrap(facets = ~author, ncol = 2, scales = "free")+
+  coord_flip()+
+  scale_x_reordered()+
+  theme_bw()+
+  labs(x = "", y = "")+
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(), 
+    axis.ticks.y = element_blank())+
+  scale_fill_manual(values = c( "#AAA009", "#900AAA", "#0FE999", "#1AE432", "#eda813"))
+  # scale_fill_gradient2(low = brewer.pal(3, "BrBG"), 
+                       # mid = brewer.pal(5, "PRGn"), 
+                       # high = brewer.pal(7, "Set1"))
+```
+
+Voici les noms et les émojis préférés (maximum 2 émojis) par chaque utilisateur.
+
+A partir du graphique, on peut conclure que :
+
+-   Parker préfère utiliser **clapping hands : medium skin tone** 👏 et **man dancing : skin tone** 🕺
+
+-   Elbert préfère utiliser **face with tears** 😂 et **smiling face with heart-eyes** 😍
+
+-   Denson utilise préfère utiliser **red heart** ❤️ et **face with tears of joy** 😂
+
+-   Moi (Veny) préfère utiliser **check mark button** ✅ et **rose** 🌹
+
+## **C) Mots**
+
+A l'exemple de l'analyse sur les émojis, nous analyserons les mots.
+
+### **a) Mots les plus utilisés**
+
+Nous désirons également savoir les mots que nous utilisons le plus dans nos conversations.
+
+```{r echo=FALSE, fig.align='center', fig.cap= "**Graphique 8** : Mots les plus utilisés", warning=FALSE, message=FALSE}
+
+word_to_remove <- c("tu",'toi', 'te','ton', "n'","es",
+                    'que','pas','omis', 'il', 'ta', 'oui', 'non',
+                    'ok','médias', 'elle', 'as', 'des', 'de',"le",
+                    'la', 'je','et', "en", 'ah', 'est', "ne", 
+                    'du',"on", "sur","mais","où","là","rien",
+                    "au","vas",'de', 'ce', "ça", "c'est", "à",
+                    "qui","me", 'un', "une", "va", "sis", "les",
+                    "j'ai", 'vais', "suis","si", "a","bon", "oh",
+                    "quoi", "pour", "supprimé", "dans", "tout", "sa", "https", "vous", "nous", "tous", "ou", "été","vos", "avec", "par", "message", "plus", "ca", "dit", "cest")
+
+# removeWords()
+
+# stopwords(kind = "fr") 
+
+word.f_chat <- f_chat %>% 
+  unnest_tokens(output = word, input = text, to_lower = TRUE) %>% 
+  filter(!word %in% word_to_remove)
+
+word.f_chat %>% 
+  count(word, sort = T) %>% 
+  top_n(n = 15) %>% 
+  ggplot(aes(reorder(word, n), y = n, fill = n))+
+  geom_bar(stat = "identity", show.legend = F, width = 0.11) +
+  geom_point(show.legend = F, size = 1.3, color = "black")+
+  coord_flip() +
+  theme_bw()+
+  labs(title = "Les 15 mots les plus utilisés",
+    x = "", y = "")+
+  theme(plot.title = element_text(colour = "coral", size = 11, face = "bold"),
+    axis.text.x = element_text(color = "blue"),
+        axis.text.y = element_text(colour = "black"),
+        axis.ticks = element_blank(),
+        plot.background = element_rect(fill = "white"),
+        panel.border = element_rect(linewidth = 1,
+                                    linetype = 1))+
+  scale_fill_gradient2(low = "lightgreen", 
+                       mid = "orange", high = "blue")
+```
+
+Les 4 mots les plus utilisés dans nos conversations sont : **Merci**, **dieu**, **amen**, **bien**. Ces mots ont été utilisés plus 60 fois.
+
+### **b) Mots Préférés de Chaque Utlisateur**
+
+```{r echo=FALSE, fig.align='center', warning=FALSE, message=FALSE, error=FALSE , fig.cap= "**Graphique 9** : Les 5 motsles plus utilisés par chaque utilisateur"}
+
+word.f_chat %>% 
+  filter(!word %in% word_to_remove) %>% 
+  group_by(author) %>%
+  count(word) %>% 
+  top_n(5, n) %>%
+  ggplot(aes(reorder_within(word, n, author), y = n))+ 
+  aes(fill = author)+
+  geom_bar(stat = "identity", width = 0.2, show.legend = F) +
+  geom_point(show.legend = F,size = 1.3, color = "black")+
+  facet_wrap(~author, ncol = 2, scales = "free")+
+  coord_flip() +
+  scale_x_reordered()+
+    scale_fill_manual(values = c( "#AAA009", "#900AAA", 
+                                  "#0FE999", "#1AE432", "#eda813"))+
+  theme_bw()+
+  labs(x = "", y = "")+
+  theme(axis.text.x = element_blank(), 
+        axis.ticks = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "bottom",
+        plot.background = element_rect(fill = "white"),
+        panel.border = element_rect(color = "red", linewidth = 1,
+                                    linetype = 1))
+```
+
+### **c) Nuages de mots** {style="red"}
+
+Sur le nuage, les mot les plus utilisés sont au milieu et sont en plus grand caractère. Ensuite, les mots moyennement utilisés viennent juste après. Enfin, les mots les moins utilisés sont aux extrémités du nuage.
+
+```{r, echo=FALSE, fig.align=FALSE, warning=FALSE, message=FALSE, error=FALSE}
+
+wordcloud::wordcloud(word.f_chat$word,                      
+                      max.words = 500,                      
+                     random.order = F,                      
+                     scale = c(3,0.3),                       
+                     colors = brewer.pal(11, "Dark2"),                       
+                     rot.per = 0.1,                      
+                     min.freq = 5,
+                     random.color = T)
+```
+
+**merci**, **dieu**, **amen** et **bien**, sont les mots les plus utilisés lors de nos conversation. Ils se situent au centre du nuage.
+
+Les mots les moins utilisés sont aux extrêmités du nuage.
+
+## **D) Analyse des sentiments**
+
+Analysons maintenant les sentiments et les émotions qui se dégagent de nos discutions. En fait, à partir du type de mots que nous utilisons dans nos messages, nous pouvons voir le types de sentiments les plus manifestes.
+
+### **a) Sentiments liés à nos conversations**
+
+Le tableau suivant resume l'ensemble des sentiments qui se dégagent de nos conversations. Ce tableau se compose des sentiments négatif d'une part, et des sentiments positifs d'autres part.
+
+**Note** : dans la table ci-dessous,
+
+-   **0** si un mot n'a aucun lien avec un sentiment,
+
+-   **1** ou **plus** (2,3,4,5, etc.) si un mot a un lien avec un sentiment et est utilisé plusieurs fois.
+
+```{r include=FALSE}
+
+# build table of sentiments
+sentiment <- f_chat$text %>% 
+  get_nrc_sentiment()
+
+# use utf-8 encoding for characters
+corpus <- f_chat
+corpus <- iconv(corpus$text , to = "utf-8")
+
+# test get_nrc_sentiment
+get_nrc_sentiment("anticipation")
+corpus[4]
+
+# Save sentiment table
+save("sentiment", file = "sentiment.RData", row.names = F)
+```
+
+```{r echo=FALSE}
+
+sentiment %>% 
+  datatable( rownames = F, 
+             extensions = c("KeyTable", "ColReorder", "Buttons"),
+             class = 'cell-border strip hover compact',
+             options = list(dom = "t",
+               keys = TRUE,
+               order = list(list(7, "desc"))
+               # colReorder = list(realtime = FALSE),
+               # buttons = I("colvis")
+               ),
+             caption = htmltools::tags$caption(
+               style = 'caption-side : top; color:orange; text-align: left; font-stretch:2.5; line-height: 1.5;', 'Table 5 : ', htmltools::tags$strong("les sentiments de nos conversations (10 ières ligne du tableau)")
+        )
+  ) %>% formatStyle(columns = names(sentiment),
+                    target = c("cell", "row"),
+                    backgroundColor = styleEqual(c(0,1), c("white", "lightblue"))
+  )
+```
+
+Les cellules colorées en bleu indiquent la présence d'un mot en lien avec le sentiment qui s'affiche à l'entête de la colonne. On peut voir à peu prêt que les mots qu'on utilise le plus dans nos conversations sont plus positifs que négatifs.
+
+```{r include=FALSE}
+
+df_tex <- sentiment
+dim(df_tex)
+class(df_tex)
+
+df_sent <- data.frame(colSums(df_tex[, 1:10]))
+
+df_sent <- cbind('sentiment' =  rownames(df_sent), df_sent)
+colnames(df_sent)[2] <- 'sentiment_count'
+
+save(df_sent, file = 'sentiments.f_table.RData', rownames = F)
+
+head(df_sent)
+```
+
+### **b) Sentiments les plus fréquents dans nos discussions**
+
+```{r echo=FALSE}
+
+df_sent %>% 
+  datatable( rownames = F,
+             extensions = c("KeyTable", "ColReorder", "Buttons"),
+             class = 'cell-border strip hover compact',
+             options = list( dom = "t",
+               keys = TRUE, 
+               order = list(list(1, "desc"))
+               # colReorder = list(realtime = FALSE),
+               # buttons = I("colvis")
+               ),
+             caption = htmltools::tags$caption(
+               style = 'caption-side : top; color:orange; text-align: left; font-stretch:2.5; line-height: 2.5;', 'Table 6 : ', htmltools::tags$strong("les sentiments par order de présence")
+        )
+  ) %>% formatStyle(columns = "sentiment_count",
+                    names(df_sent), 
+                    target = "cell",
+                    background = styleColorBar(df_sent[, 2], "lightblue"), 
+                    backgroundSize = "100% 82%",
+                    backgoundRepeat = "no-repeat",
+                    backgroundPosition = "center",
+                    color = "red"
+                    )
+```
+
+On constate avec plaisir que nos conversations ont une portée très positive, avec plusieurs expressions liées à l'espoir. Il y a cependant également des sentiment négatifs, mais ils ne prédominent pas dans nos discussions.
+
+```{r, fig.cap= "**Graphique 10** : Les sentiments les plus fréquents", echo=FALSE}
+
+df_sent %>% 
+  ggplot(aes(sentiment , sentiment_count, fill = sentiment_count)) +
+  geom_bar(stat = "identity", show.legend = F) + 
+  labs(y = "Nombres de messages", x = "Les sentiments")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 0.9))+
+  theme_bw()+ 
+  ggtitle("Les sentiments")+
+  theme(plot.title = element_text(color = "navy", size = 12, face = "bold"),
+        axis.ticks.y = element_blank(), 
+        axis.text.x = element_text(color = "red", vjust = 3, face = "bold"),
+        panel.background = element_rect(colour = "beige"))
+```
+
+Dans nos conversations, il y a beaucoup d'expressions **positives**, d'**espérance**, et moins de **négativité**. C'est bon à savoir.
+
+# **Conclusion**
+
+Au terme de notre analyse, on peut conclure que notre analyse avait pour objet de faire un état des lieux des données émanant de conversations du réseau social whatsapp, précisément de mon groupe de discussions avec mes frères.
+
+Nous avons fait une analyse descriptive de base ou introductive permettant de comprendre les informations contenues des données texte, en l'occurence des discussions. Nous avons su nettoyer, ordonner, analyser et comprendre les liens et modèles existant dans nos nos données.
+
+Par ailleurs, d'autres études peuvent faire appelle à cette analyses de premier plan pour aller plus loin. En effet, elles pourraient en faire la continuité en s'orientant vers le diagnostic, la prédiction et la prescription selon les besoins et les domaines.
+
+<BR>
+
+<BR>
+
+```{=html}
+<span, style="color: hotpink";>
+      <center>  
+          <strong> BONNE LECTURE. MERCI </strong>
+      </center>
+</span>
+```
